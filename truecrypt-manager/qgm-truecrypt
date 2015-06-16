@@ -1,6 +1,22 @@
 #!/bin/bash
 
-# Get Arguments
+# qgm-tuecrypt
+# Ein kleines Skript, um die Verwendung von Truecrypt auf 
+# Linux-Clients zu vereinfachen
+#
+# GPLv3 Frank Schiebel <frank@linuxmuster.net> 2015-06-16 
+#
+
+# Konfiguration 
+# Name der Containerdatei
+CONTAINERNAME="qgm-encrypted.tc"
+# Benutzerhome (als Variable, falls man das mal in eine Option 
+# auslagern möchte)
+USERHOME=$HOME
+# Mountverzeichnis
+MOUNTUSBTO="$USERHOME/USB-verschluesselt"
+
+# Kommandozeilenargumente
 action="mount"
 while getopts 'dc' OPT; do
   case $OPT in
@@ -9,70 +25,90 @@ while getopts 'dc' OPT; do
     *)  unknown="yes";;
   esac
 done
-# Als erstes Argument muss das Home des Users 
-# übergeben werden!
-#if [ "x$1" = "x" ]; then 
-#	echo "FEHLER Erstes Argument muss Userhome sein."
-#	exit 
-#fi
-
-USERHOME=$HOME
 
 
+#
+# mount_container Container einbinden
+#
+# Diese Funktion sucht in den entfernbaren 
+# Medien nach einer Datei mit dem Namen 
+# $CONTAINERNAME und bindet diese ein.
+#
 function mount_container () {
-	# suche den Container
-	CONTAINER=$(find /media -name qgm-encrypted.tc 2> /dev/null | head -n 1)
+	# Suche den Container unterhalb von /media, nur der erste gefundene wird autoatisch verwaltet!
+	CONTAINER=$(find /media -name $CONTAINERNAME 2> /dev/null | head -n 1)
+    
+    # Kein Container gefunden - jetzt wird einer angelegt!
+	if [ "x$CONTAINER" = "x" ]; then 
+		create_new_container 
+        mount_container
+		exit
+	fi
 
+    # Prüfe, ob der Container bereits gemountet ist
 	CONTAINER_MOUNTED=$(truecrypt -t -l | grep $CONTAINER)
+    # Wenn ja, Hinweis an den Anwender, Fragen, ob der Container ausgeworfen werden soll
 	if [ "x$CONTAINER_MOUNTED" != "x" ]; then 
 		zenity  --question --window-icon="info" --text="Der Container ist bereits eingebunden!\n\nMöchten Sie den Container auswerfen?"
-
+        # Wenn Antort aus zenity "Ja" ist, Container auswerfen
 		if [ $? -eq 0 ]; then 
 			umount_container
 		fi
+        # Sonst Skript beenden
 		exit 0
 	fi 
 
 
-	if [ "x$CONTAINER" = "x" ]; then 
-		echo "FEHLER Kein Container gefunden"
-		exit
-	fi
-
 	# Verzeichnis anlegen
-	mkdir -p $USERHOME/USB-verschluesselt
-	# Mounten
-	sudo truecrypt $CONTAINER $USERHOME/USB-verschluesselt
+	mkdir -p $MOUNTUSBTO
+	# Container einbinden. TC fragt dabei 
+    # grafisch nach dem Passwort für den Container
+	sudo truecrypt $CONTAINER $MOUNTUSBTO
 }
 
+#
+# umount_container Container aushängen
+#
+# Diese Funktion entfernt den TC-Container und 
+# Informiert den Benutzer. 
+# Auf Nachfrage kann das USB Gerät gleich 
+# ausgehängt werden
+#
 function umount_container () {	
 	sudo truecrypt -d $CONTAINER && zenity  --question --text="Der verschlüsselte Container wurde sicher ausgeworfen.\n\nWollen Sie den USB Stick ebenfalls auswerfen?"
-	
 	if [ $? -eq 0 ]; then 
-		echo 
+        DEVICEPATH=$(find /media -name qgm-encrypted.tc 2> /dev/null | head -n 1)
+        DEVICEPATH=${DEVICEPATH%/*}
+        # Das wird wahrscheinlich nicht gehen, ohne sudo....
+		umount $DEVICEPATH
 	fi
 
 }
 
+#
+# create_new_container Container erzeugen
+#
 function create_new_container () {
-        MOUNTPOINT=$(mount | grep "on /media" | awk -F"type" '{print $1}' | awk -F"on" '{print $2}' | sed -e "s/^ //"| sed -e "s/ $//" | head -n 1)
+    # Suche eingehängte Massenpeichergeräte
+    MOUNTPOINT=$(mount | grep "on /media" | awk -F"type" '{print $1}' | awk -F"on" '{print $2}' | sed -e "s/^ //"| sed -e "s/ $//" | head -n 1)
+    # Wenn keine gefunden werden: Informiere den Benutzer und beende das Skript
+    # FIXME zenity Rückmeldung
 	if [ "x$MOUNTPOINT" = "x" ]; then 
 		echo "Kein Massenspeichermedium gefunden"
 		exit 1
 	fi
-        FREE=$(df "$MOUNTPOINT" | awk '{print $4}' | tail -n 1)
+    # Freien Platz auf dem Ziellaufwerk ermitteln
+    FREE=$(df "$MOUNTPOINT" | awk '{print $4}' | tail -n 1)
+    # Fragen, wie gross der Container sein soll
 	SIZE=$(zenity 	--entry --title="Göße des neuen Containers festlegen" \
-			--text "Im Verzeichnis $MOUNTPOINT ist $FREE Kilobytes Platz\n Wie groß soll der Contaiiner sein?" \
-			--entry-text "Groesse")
-	
-	
-	
+			--text "Im Verzeichnis $MOUNTPOINT sind $FREE Kilobytes Platz frei.\nWie groß soll der verschlüsselte Container sein?" \
+			--entry-text "Größe")
+    # Passwort des Containers erfragen
 	CONTAINER_PASS=$(zenity --entry \
 				--title="Passwort festlegen" \
-				--text="Geben Sie ein gutes Passwort für den neuen Datencontainer an." \
+				--text="Geben Sie ein gutes Passwort für den neuen verschlüsselten Datencontainer an." \
 				--entry-text "Passwort")
-
-
+    # Container anlegen
 	truecrypt 	--text \
 			--filesystem=FAT \
 			--volume-type=normal \
@@ -83,8 +119,7 @@ function create_new_container () {
 			--password="$CONTAINER_PASS" \
 			--keyfiles= \
 			--random-source=/dev/urandom \
-			test.tc
-
+			$MOUNTPOINT/$CONTAINERNAME
 }
 
 case $action in 
