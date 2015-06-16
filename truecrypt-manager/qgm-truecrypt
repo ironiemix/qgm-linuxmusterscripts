@@ -1,0 +1,127 @@
+#!/bin/bash
+
+CONTAINERDEFAULTNAME="qgm-encrypted.tc"
+
+# Get Arguments
+action="mount"
+while getopts 'dc' OPT; do
+  case $OPT in
+    c)  action="create";;
+    d)  action="umount";;
+    *)  unknown="yes";;
+  esac
+done
+
+USERHOME=$HOME
+
+
+function display_error_exit () {
+    zenity  --error \
+            --text="$1"
+    exit 1
+}
+
+function display_info () {
+    zenity  --info \
+            --text="$1"
+}
+
+
+function mount_container () {
+	# suche den Container
+	CONTAINER=$(find /media -name qgm-encrypted.tc 2> /dev/null | head -n 1)
+
+	if [ "x$CONTAINER" = "x" ]; then 
+        zenity  --question \
+                --text="ACHTUNG!\n\nAuf den angeschlossenen USB-Speichergeräten wurde\nkein Truecrypt-Container mit dem Namen\n$CONTAINERDEFAULTNAME gefunden.\nUm vertrauliche Daten auf einem USB Stick transportieren zu können, musst du einen verschlüsselten Container anlegen.\nWenn du auf \"OK\" klickst, startet ein Assistent, der dir dabei hilft."
+        echo $?
+        $0 -c
+        exit 
+	fi
+
+	# Verzeichnis anlegen
+	mkdir -p $USERHOME/USB-verschluesselt
+	# Mounten
+	sudo truecrypt "$CONTAINER" "$USERHOME/USB-verschluesselt"
+    # Nautilus öffnen
+    nautilus "$USERHOME/USB-verschluesselt"
+}
+
+function umount_container () {	
+	sudo truecrypt -d 
+    display_info "Alle verschlüsselten Container wurden ausgehängt,\ndu kannst den USB-Stick jetzt auswerfen"
+
+}
+
+function create_new_container () {
+        # get mountpoint of first usb-mass-storage device
+        MOUNTPOINT=$(mount | grep "on /media" | awk -F"type" '{print $1}' | awk -F"on" '{print $2}' | sed -e "s/^ //"| sed -e "s/ $//" | head -n 1)
+    
+	    if [ "x$MOUNTPOINT" = "x" ]; then 
+		    display_error_exit "FEHLER\n\n Es wurde kein am Computer angeschlossenes\n Massenspeichermedium gefunden"
+		    exit 1
+	    fi
+
+        if [ -f "$MOUNTPOINT/$CONTAINERDEFAULTNAME" ]; then 
+            display_error_exit "FEHLER\n\nAuf dem Massenspeichermedium existiert bereits\neine Datei mit dem Namen $CONTAINERDEFAULTNAME, diese\nkann mit diesem Programm nicht überschrieben werden."
+        fi 
+        # get free space in kilobytes
+        FREEKB=$(df "$MOUNTPOINT" | awk '{print $4}' | tail -n 1)
+        FREE=$[$FREEKB / 1024]
+
+        # ask user to chose size of container
+	    SIZEIN=$(zenity 	--entry --title="Göße des neuen Containers festlegen" \
+			--text "Im Verzeichnis $MOUNTPOINT ist $FREE Megabyte Platz\nWie groß soll der neue Container sein?\nGib die Größe bitte in Megabyte ein - ein Gigabyte entsprechen 1000MByte" \
+			--entry-text "Größe in Megabyte")
+    
+        if [ "x$SIZEIN" = "x" ]; then
+		    display_error_exit "FEHLER\n\nDu hast keine Containergröße angegeben."
+            exit 1
+        fi
+
+
+        SIZE=$[$SIZEIN * 1024]
+        echo $SIZE $FREEKB
+        if [ $SIZE -gt $FREEKB ]; then 
+		    display_error_exit "FEHLER\n\nNicht genügend Speicherplatz vorhanden!\n\
+            Im Verzeichnis\n$MOUNTPOINT ist ${FREE}Mbyte Platz vorhanden, du hast\n\
+            angegeben, dass der neue Container\n$SIZEIN Mbyte groß sein soll - \n\
+            das klappt nicht."
+            exit 1
+        fi 
+        SIZE=$[$SIZE * 1000]
+	
+	
+	    # aks user for password
+	    CONTAINER_PASS=$(zenity --entry \
+				--title="Passwort festlegen" \
+				--text="Geben Sie ein gutes Passwort für den neuen Datencontainer an." \
+				--entry-text "Passwort")
+        display_info "Der Container wird erstellt - das kann lange dauern!\nFür einen 2GB großen Container kann das schonmal 15 Minuten dauern.\n Wenn der Vorgang abgeschlossen ist, erfolgt eine weitere Information!"
+        # create container
+	    truecrypt 	--text \
+			        --filesystem=FAT \
+			        --volume-type=normal \
+			        --create  \
+			        --size=$SIZE \
+			        --encryption=AES \
+			        --hash=RIPEMD-160 \
+			        --password="$CONTAINER_PASS" \
+			        --keyfiles= \
+			        --random-source=/dev/urandom \
+                   "$MOUNTPOINT/$CONTAINERDEFAULTNAME" | tee >(zenity --progress --pulsate --auto-close)
+        display_info "Der Container wurde erstellt. Sie können den Stick nun entfernen oder den neu erstellten verschlüsselten Container verwenden."
+
+}
+
+case $action in 
+ mount)
+	mount_container
+ ;;
+ create) 
+	create_new_container
+ ;;
+ umount)
+	umount_container
+ ;;
+esac
