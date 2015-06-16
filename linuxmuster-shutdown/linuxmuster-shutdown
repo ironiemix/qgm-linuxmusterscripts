@@ -1,0 +1,59 @@
+#!/bin/bash
+
+# Dieses Skript schaltet einen Rechner mit dem Befehl
+# ssh <rechnername> linuxmuster-shutdown aus, wobei ein 
+# an der grafischen Oberfläche angemeldeter Nutzer benachrichtigt wird
+# und den Vorgang unterbrechen kann
+
+# GPLv3 Frank Schiebel <frank@linuxmuster.net> 2015-06-16
+
+# where is zenity?
+ZENITY=/usr/bin/zenity
+
+# check file
+MANUAL=/tmp/shutd-$(date +%s)
+rm -rf $MANUAL
+
+# skriptname
+SELF=$0
+
+# Aktion?!
+ACTION=$1
+if [ x$ACTION == "x" ]; then 
+	ACTION="doit"
+fi
+
+function notify_user {
+        
+	(
+	for ((i=1; i<=100; i++)); do
+	    echo $i; sleep 1
+	done
+	) |
+	$ZENITY --progress \
+	  --title="Computer ausschalten" \
+	  --text="Der Computer wird demnächst ausgeschaltet.\n\nDabei gehen alle nicht gespeicherten\nÄnderungen an geöffneten Dateien\nund Dokumenten verloren.\n\nWenn Sie das nicht wollen, klicken Sie auf\nAbbrechen und schalten den Computer aus,\nwenn Sie mit Ihrer Arbeit fertig sind." \
+	  --auto-close \
+	  --percentage=0
+
+	if [ ! $? -eq 0 ] ; then
+   		touch $MANUAL
+	fi
+}
+
+if [ $ACTION == "dialog" ]; then
+	notify_user
+	exit 0
+fi 
+
+for pid in $(pgrep gnome-session); do
+	DY=$(grep -z DISPLAY /proc/$pid/environ)
+        UR=$(grep -z USER /proc/$pid/environ | cut -d= -f2)
+	su - $UR -c "$DY $SELF dialog" 
+done
+
+if [ -f $MANUAL ]; then 
+	rm $MANUAL
+else
+	/sbin/shutdown -h now
+fi
