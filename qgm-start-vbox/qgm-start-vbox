@@ -1,0 +1,119 @@
+#!/bin/bash
+
+# LeoClient für Arme
+#
+# GPLv3 Frank Schiebel <frank@linuxmuster.net> 2015-06-16
+
+STARTVM="winXP"
+VBM=$(which vboxmanage)
+SNAPBASE="/virtual/Machines/WinXP/Snapshots"
+
+# get selection
+colstring="TRUE active.vdi  Letzter_Zustand_der_VM"
+for diffimg in ${SNAPBASE}/*.desc; do 
+
+	desc=$(head -n 1 $diffimg | sed -e "s/ /_/g")
+
+	diffimg=${diffimg%.desc}; 
+	diffimg=${diffimg##*/};
+
+  	colstring=" $colstring FALSE $diffimg.vdi $desc"
+
+done
+
+imgtostart=$(zenity --title="Imageauswahl" --list --radiolist --column="Wahl?" --column="Name" --width=460 --height=340 --column="Beschreibung" $colstring)
+
+if [ x$imgtostart == "x" ]; then 
+	exit 
+fi
+
+cd && HOME=$(pwd)
+
+VBOXCONF=$HOME/.VirtualBox/VirtualBox.xml
+WXPCONF=$HOME/.VirtualBox/Machines/winXP/winXP.xml
+BASEDISK=$1
+SNAPDISK=$2
+
+(
+if [ $imgtostart != "active.vdi" ]; then 
+	echo "5"
+	echo "Snapshot kopieren..."
+  	cp ${SNAPBASE}/$imgtostart ${SNAPBASE}/active.vdi
+fi
+
+echo "10"
+echo "# Konfiguration vorbereiten..."
+rm -rf $HOME/.VirtualBox
+/usr/bin/setup-virtualbox
+
+if [ -z $BASEDISK ] || [ -z $SNAPDISK ]; then 
+	echo "Basedisk- oder Snapdisk-File nicht angegeben!"
+exit 1
+fi
+
+if [ ! -f $VBOXCONF ]; then 
+	echo "Vbox Konfigurationsdatei $VBOXCONF nicht gefunden!"
+	exit 1
+fi
+
+
+if [ ! -f $WXPCONF ]; then 
+	echo "WinXP Konfiguration ($WXPCONF) für Virtualbox nicht gefunden!"
+	exit 1
+fi
+
+if [ ! -f $BASEDISK ]; then 
+	echo "Basedisk-File $BASEDISK nicht gefunden!"
+	exit 1
+fi
+
+if [ ! -f $SNAPDISK ]; then 
+	echo "Snapdisk-File $SNAPDISK nicht gefunden!"
+	exit 1
+fi
+
+ 
+BASEUUID=$($VBM showhdinfo $BASEDISK | sed "s/ //g" | grep ^UUID | cut -d: -f2)
+SNAPUUID=$($VBM showhdinfo $SNAPDISK | sed "s/ //g" | grep ^UUID | cut -d: -f2)
+
+
+echo "# Konfiguration anpassen..."
+for ((i=1; i<=6; i++)); do
+      p='expr $i*10'
+      echo $p; sleep 1
+done
+
+
+echo "# Patching $VBOXCONF ..."
+sed -i "s|11111111-2222-3333-4444-555555555555|$BASEUUID|g" $VBOXCONF
+sed -i "s|99999999-2222-3333-4444-555555555555|$SNAPUUID|g" $VBOXCONF
+sed -i "s|BASEDISK-LOCATION|$BASEDISK|g" $VBOXCONF
+sed -i "s|SNAPSHOT-LOCATION|$SNAPDISK|g" $VBOXCONF
+
+echo "75"
+
+
+echo "# Patching $WXPCONF ..."
+sed -i "s|11111111-2222-3333-4444-555555555555|$BASEUUID|g" $WXPCONF
+sed -i "s|99999999-2222-3333-4444-555555555555|$SNAPUUID|g" $WXPCONF
+
+echo "90"
+sleep 1
+
+vboxmanage sharedfolder remove $STARTVM --name home
+vboxmanage sharedfolder remove $STARTVM --name media
+
+vboxmanage sharedfolder add $STARTVM --name home --hostpath $HOME/Home_auf_Server --automount
+vboxmanage sharedfolder add $STARTVM --name media --hostpath /media --automount
+
+echo "100"
+
+)  | zenity 	--progress --title "Virtuelles Windows starten..." \
+		--text "Vorlagenkonfiguration holen..." \
+                --auto-close \
+		--width=700 \
+                --height=120 \
+		--percentage=0
+
+vboxmanage startvm $STARTVM
+
