@@ -36,7 +36,7 @@ done
 #
 function mount_container () {
 	# Suche den Container unterhalb von /media, nur der erste gefundene wird autoatisch verwaltet!
-	CONTAINER=$(find /media -name $CONTAINERNAME 2> /dev/null | head -n 1)
+	CONTAINER=$(find /media -name $CONTAINERNAME ! -path "*.Trash*" 2> /dev/null | head -n 1)
     
     # Kein Container gefunden - jetzt wird einer angelegt!
 	if [ "x$CONTAINER" = "x" ]; then 
@@ -94,26 +94,54 @@ function create_new_container () {
     # Wenn keine gefunden werden: Informiere den Benutzer und beende das Skript
     # FIXME zenity Rückmeldung
 	if [ "x$MOUNTPOINT" = "x" ]; then 
-		echo "Kein Massenspeichermedium gefunden"
+        zenity  --notification \
+                --window-icon="info" \
+                --text="Es wurde kein Massenspeichermedium gefunden. Stellen Sie sicher dass der USB-Stick angeschlossen ist."
 		exit 1
 	fi
     # Freien Platz auf dem Ziellaufwerk ermitteln
     FREE=$(df "$MOUNTPOINT" | awk '{print $4}' | tail -n 1)
+    FREEMB=$((FREE / 1024 ))
+    # Minimalwert des Schiebereglers
+    MINMB=$((FREEMB / 10 ))
+    # Maximalwert des Schiebelreglers
+    MAXMB=$((FREEMB - FREEMB / 10 ))
+    # Startwert des Schiebelreglers
+    if [ $MAXMB -gt 1200 ]; then 
+        SELECTMB=1024
+    else
+        SELECTMB=$((FREEMB / 2))
+    fi
+
+
     # Fragen, wie gross der Container sein soll
-	SIZE=$(zenity 	--entry --title="Göße des neuen Containers festlegen" \
-			--text "Im Verzeichnis $MOUNTPOINT sind $FREE Kilobytes Platz frei.\nWie groß soll der verschlüsselte Container sein?" \
-			--entry-text "Größe")
+    SIZE=$(zenity --scale --text="Im Verzeichnis $MOUNTPOINT sind $FREEMB MB Platz frei.\nWie groß (im MB) soll der neue Container sein?" --min-value=$MINMB --max-value=$MAXMB --value=$SELECTMB)
+
+    # Leere Antwort: Abbrechen
+    if [ x$SIZE = "x" ]; then 
+        exit 1
+    fi
+    
+    # TC erwartet die Containerröße in Bytes...
+    SIZE=$((SIZE * 1024 *1024))
+
     # Passwort des Containers erfragen
 	CONTAINER_PASS=$(zenity --entry \
 				--title="Passwort festlegen" \
 				--text="Geben Sie ein gutes Passwort für den neuen verschlüsselten Datencontainer an." \
 				--entry-text "Passwort")
+
+    # Kein neues Passwort angegeben: Abbrechen
+    if [ $CONTAINER_PASS = "Passwort" ]; then
+        exit 1
+    fi
+
     # Container anlegen
 	truecrypt 	--text \
 			--filesystem=FAT \
 			--volume-type=normal \
 			--create  \
-			--size=20000000 \
+			--size=$SIZE \
 			--encryption=AES \
 			--hash=RIPEMD-160 \
 			--password="$CONTAINER_PASS" \
