@@ -147,7 +147,14 @@ function create_new_container () {
 			--password="$CONTAINER_PASS" \
 			--keyfiles= \
 			--random-source=/dev/urandom \
-			$MOUNTPOINT/$CONTAINERNAME
+			$MOUNTPOINT/$CONTAINERNAME  |  zenity 	--progress \
+								--width 350 \
+								--auto-close \
+								--no-cancel \
+								--pulsate \
+								--text "Bitte warten, Container wird erzeugt. Das kann mehrere Minuten dauern!" \
+								--title "Container wird erzeugt"
+
 }
 
 case $action in 
