@@ -16,6 +16,14 @@ USERHOME=$HOME
 # Mountverzeichnis
 MOUNTUSBTO="$USERHOME/USB-verschluesselt"
 
+# Mitteilungstexte
+MSG_PASSWORT="Legen Sie ein Passwort für den verschlüsselten Container fest,\nindem Sie es zweimal eingeben."
+
+MSG_CREATE="Bitte warten, Container wird erzeugt. Das kann mehrere Minuten dauern!"
+TTL_CREATE="Container wird erzeugt"
+
+MSG_SIZE='Im Verzeichnis $MOUNTPOINT sind $FREEMB MB Platz frei.\nWie groß (im MB) soll der neue Container sein?'
+
 # Kommandozeilenargumente
 action="mount"
 while getopts 'dc' OPT; do
@@ -103,7 +111,7 @@ function create_new_container () {
     FREE=$(df "$MOUNTPOINT" | awk '{print $4}' | tail -n 1)
     FREEMB=$((FREE / 1024 ))
     # Minimalwert des Schiebereglers
-    MINMB=64
+    MINMB=128
     # Maximalwert des Schiebelreglers
     MAXMB=$((FREEMB - FREEMB / 10 ))
     # Startwert des Schiebelreglers
@@ -113,9 +121,13 @@ function create_new_container () {
         SELECTMB=$((FREEMB / 2))
     fi
 
+    if [ $SELECTMB -lt $MINMB ]; then
+        MINMB=$((SELECTMB / 2))
+    fi
+
 
     # Fragen, wie gross der Container sein soll
-    SIZE=$(zenity --scale --text="Im Verzeichnis $MOUNTPOINT sind $FREEMB MB Platz frei.\nWie groß (im MB) soll der neue Container sein?" --min-value=$MINMB --max-value=$MAXMB --value=$SELECTMB)
+    SIZE=$(zenity --scale --text="$MSG_SIZE" --min-value=$MINMB --max-value=$MAXMB --value=$SELECTMB)
 
     # Leere Antwort: Abbrechen
     if [ x$SIZE = "x" ]; then 
@@ -124,17 +136,37 @@ function create_new_container () {
     
     # TC erwartet die Containerröße in Bytes...
     SIZE=$((SIZE * 1024 *1024))
+        
+    PWCORRECT=0
+    while [ $PWCORRECT -eq 0 ]; do
+        # Passwort des Containers erfragen
+        PASSSTRING=$(zenity --forms \
+                             --title="Passwort festlegen" \
+                             --text="$MSG_PASSWORT" \
+                             --separator="::::::::::" \
+                             --add-password="Passwort" \
+                             --add-password="Passwort-Wiederholung")
+        PASS1=$(echo $PASSSTRING | awk -F"::::::::::" '{print $1}')
+        PASS2=$(echo $PASSSTRING | awk -F"::::::::::" '{print $2}')
 
-    # Passwort des Containers erfragen
-	CONTAINER_PASS=$(zenity --entry \
-				--title="Passwort festlegen" \
-				--text="Geben Sie ein gutes Passwort für den neuen verschlüsselten Datencontainer an." \
-				--entry-text "Passwort")
+        # Leeres Passwort bricht den gesamten Vorgang ab
+        # genauso wie "Abbrechen"
+        if [ x$PASS1 = "x" ]; then 
+            exit 0
+        fi
+        if [ x$PASS2 = "x" ]; then 
+            exit 0
+        fi
 
-    # Kein neues Passwort angegeben: Abbrechen
-    if [ $CONTAINER_PASS = "Passwort" ]; then
-        exit 1
-    fi
+        PWCORRECT=1
+        CONTAINER_PASS=$PASS1
+
+        # PWs stimmen nicht überein...
+        if [ $PASS1 != $PASS2 ]; then   
+            MSG_PASSWORT="Die eingegebenen Passwörter haben nicht übereingestimmt.\nBitte geben Sie das Passwort nochmals ein und wiederholen Sie es korrekt"
+            PWCORRECT=0
+        fi
+    done
 
     # Container anlegen
 	truecrypt 	--text \
@@ -152,8 +184,8 @@ function create_new_container () {
 								--auto-close \
 								--no-cancel \
 								--pulsate \
-								--text "Bitte warten, Container wird erzeugt. Das kann mehrere Minuten dauern!" \
-								--title "Container wird erzeugt"
+								--text "$MSG_CREATE" \
+								--title "$TTL_CREATE"
 
 }
 
