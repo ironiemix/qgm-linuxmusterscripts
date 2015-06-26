@@ -103,7 +103,7 @@ function create_new_container () {
     FREE=$(df "$MOUNTPOINT" | awk '{print $4}' | tail -n 1)
     FREEMB=$((FREE / 1024 ))
     # Minimalwert des Schiebereglers
-    MINMB=$((FREEMB / 10 ))
+    MINMB=64
     # Maximalwert des Schiebelreglers
     MAXMB=$((FREEMB - FREEMB / 10 ))
     # Startwert des Schiebelreglers
@@ -147,7 +147,20 @@ function create_new_container () {
 			--password="$CONTAINER_PASS" \
 			--keyfiles= \
 			--random-source=/dev/urandom \
-			$MOUNTPOINT/$CONTAINERNAME
+			$MOUNTPOINT/$CONTAINERNAME &
+    (
+    PERCENTAGE=0
+    while  [ $PERCENTAGE -lt 99 ]; do
+        sleep 7 
+        ACTUALSIZE=$(ls -l $MOUNTPOINT/$CONTAINERNAME | awk '{print $5}') 
+        PERCENTAGE=$((SIZE * 100 / ACTUALSIZE ))
+        echo "$PERCENTAGE" 
+    done
+    ) | zenity  --progress \
+            --auto-close \
+            --no-cancel \
+            --title="Die Containerdatei wird angelegt und initialisiert..." \
+            --percentage=0
 }
 
 case $action in 
