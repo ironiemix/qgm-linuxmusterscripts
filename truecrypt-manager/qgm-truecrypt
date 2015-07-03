@@ -21,8 +21,11 @@ MSG_PASSWORT="Legen Sie ein Passwort für den verschlüsselten Container fest,\n
 
 MSG_CREATE="Bitte warten, Container wird erzeugt. Das kann mehrere Minuten dauern!"
 TTL_CREATE="Container wird erzeugt"
-
 MSG_SIZE='Im Verzeichnis $MOUNTPOINT sind $FREEMB MB Platz frei.\nWie groß (im MB) soll der neue Container sein?'
+
+MSG_EJECT="Der verschlüsselte Container wurde sicher ausgeworfen.\n\nWollen Sie den USB Stick ebenfalls auswerfen?"
+MSG_NO_USB="Es wurde kein Massenspeichermedium gefunden. Stellen Sie sicher dass der USB-Stick angeschlossen ist."
+
 
 # Kommandozeilenargumente
 action="mount"
@@ -83,7 +86,7 @@ function mount_container () {
 # ausgehängt werden
 #
 function umount_container () {	
-	sudo truecrypt -d $CONTAINER && zenity  --question --text="Der verschlüsselte Container wurde sicher ausgeworfen.\n\nWollen Sie den USB Stick ebenfalls auswerfen?"
+	sudo truecrypt -d $CONTAINER && zenity  --question --text="$MSG_EJECT"
 	if [ $? -eq 0 ]; then 
         DEVICEPATH=$(find /media -name qgm-encrypted.tc 2> /dev/null | head -n 1)
         DEVICEPATH=${DEVICEPATH%/*}
@@ -102,9 +105,9 @@ function create_new_container () {
     # Wenn keine gefunden werden: Informiere den Benutzer und beende das Skript
     # FIXME zenity Rückmeldung
 	if [ "x$MOUNTPOINT" = "x" ]; then 
-        zenity  --notification \
+        zenity  --info \
                 --window-icon="info" \
-                --text="Es wurde kein Massenspeichermedium gefunden. Stellen Sie sicher dass der USB-Stick angeschlossen ist."
+                --text="$MSG_NO_USB"
 		exit 1
 	fi
     # Freien Platz auf dem Ziellaufwerk ermitteln
@@ -127,7 +130,17 @@ function create_new_container () {
 
 
     # Fragen, wie gross der Container sein soll
-    SIZE=$(zenity --scale --text="$MSG_SIZE" --min-value=$MINMB --max-value=$MAXMB --value=$SELECTMB)
+    echo $MSG_SIZE
+    MSG_SIZE=$(echo $MSG_SIZE | sed -e "s|\$MOUNTPOINT|$MOUNTPOINT|g")
+    echo $MSG_SIZE
+    MSG_SIZE=$(echo $MSG_SIZE | sed -e "s|\$FREEMB|$FREEMB|g")
+    echo $MSG_SIZE
+    SIZE=$(zenity   --scale \
+                    --text="$MSG_SIZE" \
+                    --min-value=$MINMB \
+                    --max-value=$MAXMB \
+                    --title="Containergröße" \
+                    --value=$SELECTMB)
 
     # Leere Antwort: Abbrechen
     if [ x$SIZE = "x" ]; then 
