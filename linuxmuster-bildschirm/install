@@ -1,0 +1,3 @@
+#!/bin/bash
+
+cp linuxmuster-bildschirm /usr/local/bin/linuxmuster-bildschirm
