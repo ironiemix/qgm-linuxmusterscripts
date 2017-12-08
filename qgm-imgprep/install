@@ -1,0 +1,3 @@
+#!/bin/bash
+
+cp qgm-imgprep /usr/local/sbin/qgm-imgprep
